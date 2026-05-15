@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secuencia de Encapsulamiento de Red - Flujo Técnico</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: 'Urbanist', 'Segoe UI', sans-serif;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .controls-footer {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 11px;
+            pointer-events: none;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="canvas-container">
+    <canvas id="dataFlowCanvas"></canvas>
+</div>
+
+<div class="controls-footer">
+    Simulación de Red // Flujo de Datos 5-Tupla // Análisis de Encapsulamiento
+</div>
+
+<script>
+    const canvas = document.getElementById('dataFlowCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let width, height;
+    const themeColor = '#00f2ff';
+    const goldColor = '#ffd700';
+    const gridColor = 'rgba(112, 112, 112, 0.15)';
+    
+    const PHASES = {
+        WAIT: 0,
+        IP_SLIDE: 1,
+        PORTS_EXPAND: 2,
+        PROTOCOL_STAMP: 3,
+        MERGE: 4,
+        TRANSMIT: 5
+    };
+
+    // Datos estáticos para la demostración
+    const networkData = {
+        ipSource: "192.168.1.15",
+        ipDest: "8.8.8.8",
+        portSource: "54231",
+        portDest: "443",
+        protocol: "TCP / SSL",
+        scenarioName: "Conexión Segura HTTPS"
+    };
+
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+
+    class DataSequencer {
+        constructor() {
+            this.reset();
+        }
+
+        reset() {
+            this.progress = 0;
+            this.phase = PHASES.IP_SLIDE;
+            this.stampY = -100;
+            this.packetX = width * 0.5;
+            this.merged = false;
+            this.labelAlpha = 0;
+        }
+
+        update() {
+            switch(this.phase) {
+                case PHASES.IP_SLIDE:
+                    // Velocidad lenta: 0.004
+                    this.progress += 0.004;
+                    this.labelAlpha = Math.min(1, this.progress * 2);
+                    if (this.progress >= 1) {
+                        this.progress = 0;
+                        this.phase = PHASES.PORTS_EXPAND;
+                    }
+                    break;
+                case PHASES.PORTS_EXPAND:
+                    // Velocidad lenta: 0.007
+                    this.progress += 0.007;
+                    if (this.progress >= 1) {
+                        this.progress = 0;
+                        this.phase = PHASES.PROTOCOL_STAMP;
+                    }
+                    break;
+                case PHASES.PROTOCOL_STAMP:
+                    // Velocidad lenta: 0.008
+                    this.progress += 0.008;
+                    this.stampY = -100 + (this.progress * 600);
+                    if (this.progress >= 1) {
+                        this.progress = 0;
+                        this.phase = PHASES.MERGE;
+                    }
+                    break;
+                case PHASES.MERGE:
+                    // Velocidad lenta: 0.008
+                    this.progress += 0.008;
+                    if (this.progress >= 1) {
+                        this.progress = 0;
+                        this.phase = PHASES.TRANSMIT;
+                        this.merged = true;
+                    }
+                    break;
+                case PHASES.TRANSMIT:
+                    // Movimiento lento del paquete final
+                    this.packetX += 4;
+                    if (this.packetX > width + 100) {
+                        this.reset();
+                    }
+                    break;
+            }
+        }
+
+        draw() {
+            const centerX = width * 0.5;
+            const centerY = height * 0.5;
+
+            // Nodos fijos
+            drawNode(width * 0.1, centerY, "CLIENTE", false);
+            drawNode(width * 0.9, centerY, "SERVIDOR", true);
+
+            if (this.phase === PHASES.IP_SLIDE) {
+                const moveX = (centerX - 60 - width * 0.1) * this.progress;
+                drawCard(width * 0.1 + moveX, centerY, "IP ORIGEN", networkData.ipSource, this.labelAlpha);
+                drawCard(width * 0.9 - (width * 0.9 - (centerX + 60)) * this.progress, centerY, "IP DESTINO", networkData.ipDest, this.labelAlpha);
+            }
+
+            if (this.phase >= PHASES.PORTS_EXPAND && !this.merged) {
+                drawCard(centerX - 60, centerY, "IP ORIGEN", networkData.ipSource, 1);
+                drawCard(centerX + 60, centerY, "IP DESTINO", networkData.ipDest, 1);
+                
+                let portScale = (this.phase === PHASES.PORTS_EXPAND) ? this.progress : 1;
+                drawPort(centerX - 60, centerY - 80, "PUERTO ORIGEN", networkData.portSource, portScale);
+                drawPort(centerX + 60, centerY - 80, "PUERTO DESTINO", networkData.portDest, portScale, true);
+            }
+
+            if (this.phase === PHASES.PROTOCOL_STAMP) {
+                drawStamp(centerX, this.stampY, networkData.protocol);
+            }
+
+            if (this.phase === PHASES.MERGE) {
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                let s = 1 + Math.sin(this.progress * Math.PI) * 0.2;
+                ctx.scale(s, s);
+                drawGoldenTag(0, 0, networkData.scenarioName);
+                ctx.restore();
+            }
+
+            if (this.phase === PHASES.TRANSMIT) {
+                drawFinalPacket(this.packetX, centerY);
+            }
+        }
+    }
+
+    function drawNode(x, y, label, isServer) {
+        ctx.strokeStyle = themeColor;
+        ctx.lineWidth = 2;
+        if (isServer) {
+            for(let i=0; i<3; i++) ctx.strokeRect(x-20, y-40+(i*30), 40, 20);
+        } else {
+            ctx.strokeRect(x-30, y-25, 60, 40);
+            ctx.strokeRect(x-35, y+15, 70, 5);
+        }
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, x, y + 50);
+    }
+
+    function drawCard(x, y, title, val, alpha) {
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = themeColor;
+        ctx.fillStyle = '#0a0a0a';
+        ctx.fillRect(x - 50, y - 30, 100, 60);
+        ctx.strokeRect(x - 50, y - 30, 100, 60);
+        ctx.fillStyle = themeColor;
+        ctx.fillRect(x-40, y-20, 15, 15);
+        ctx.fillStyle = 'white';
+        ctx.font = '9px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(title, x, y - 10);
+        ctx.fillStyle = themeColor;
+        ctx.font = 'bold 10px Courier New';
+        ctx.fillText(val, x, y + 15);
+        ctx.globalAlpha = 1;
+    }
+
+    function drawPort(x, y, title, val, scale, isDoor) {
+        ctx.save(); ctx.translate(x, y); ctx.scale(scale, scale);
+        ctx.strokeStyle = themeColor;
+        ctx.strokeRect(-40, -20, 80, 40);
+        ctx.fillStyle = '#fff';
+        ctx.font = '8px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(title, 0, -5);
+        ctx.fillStyle = themeColor;
+        ctx.font = 'bold 11px Arial';
+        ctx.fillText(val, 0, 15);
+        ctx.restore();
+    }
+
+    function drawStamp(x, y, text) {
+        ctx.strokeStyle = '#fff';
+        ctx.strokeRect(x - 60, y - 30, 120, 60);
+        ctx.fillStyle = 'rgba(255,255,255,0.1)';
+        ctx.fillRect(x - 60, y - 30, 120, 60);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 16px Impact';
+        ctx.textAlign = 'center';
+        ctx.fillText(text, x, y + 10);
+        ctx.strokeRect(x - 15, y - 60, 30, 30);
+    }
+
+    function drawGoldenTag(x, y, name) {
+        ctx.shadowBlur = 20; ctx.shadowColor = goldColor;
+        ctx.strokeStyle = goldColor;
+        ctx.strokeRect(-75, -40, 150, 80);
+        ctx.fillStyle = goldColor;
+        ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center';
+        ctx.fillText("ETIQUETA DE IDENTIDAD", 0, -10);
+        ctx.font = '9px Arial';
+        ctx.fillText(name.toUpperCase(), 0, 15);
+        ctx.shadowBlur = 0;
+    }
+
+    function drawFinalPacket(x, y) {
+        ctx.fillStyle = goldColor;
+        ctx.fillRect(x - 20, y - 20, 40, 40);
+        ctx.fillStyle = '#000';
+        ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center';
+        ctx.fillText("DATA", x, y + 5);
+    }
+
+    function drawGrid() {
+        ctx.strokeStyle = gridColor;
+        ctx.lineWidth = 1;
+        for (let x = 0; x <= width; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
+        for (let y = 0; y <= height; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
+    }
+
+    const sequencer = new DataSequencer();
+
+    function animate() {
+        ctx.fillStyle = '#050505';
+        ctx.fillRect(0, 0, width, height);
+        drawGrid();
+        sequencer.update();
+        sequencer.draw();
+        requestAnimationFrame(animate);
+    }
+
+    window.onload = animate;
+</script>
+
+</body>
+</html>
