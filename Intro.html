@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualizador Cuántico 3D - Solo Ondas</title>
+    <style>
+        :root {
+            --bg-dark: #020204;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--bg-dark);
+            user-select: none;
+        }
+
+        #canvas-3d {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Canvas Principal de Renderizado 3D sin interfaces superpuestas -->
+<canvas id="canvas-3d"></canvas>
+
+<!-- Librería Three.js desde CDN Oficial -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+    // Variables de Renderizado y Escena
+    let scene, camera, renderer;
+    let columns = [];
+    const gridSize = 16; // Grid de 16x16 columnas
+    const spacing = 1.6;
+
+    // Configuración de la animación cinemática
+    let config = {
+        speed: 1.0,        // Frecuencia de la onda
+        amplitude: 1.0,    // Multiplicador de la altura de la onda
+        theme: 'cyan',     // Tema por defecto ('cyan' o 'gold')
+        autoRotate: true   // Giro orbital automático activado
+    };
+
+    // Colores del tema (puedes cambiar 'cyan' a 'gold' en la línea de arriba si prefieres tonos cálidos)
+    const themes = {
+        cyan: {
+            baseColor: 0x050510,
+            tipColor: 0x00f2ff,
+            ambientLight: 0x0a1a2f,
+            pointLight1: 0x00f2ff,
+            pointLight2: 0x0055ff
+        },
+        gold: {
+            baseColor: 0x150900,
+            tipColor: 0xffaa00,
+            ambientLight: 0x241100,
+            pointLight1: 0xff4400,
+            pointLight2: 0xffbb00
+        }
+    };
+
+    // Control de Cámara Orbital Manual (Sigue funcionando al arrastrar el ratón)
+    let isDragging = false;
+    let previousMousePosition = { x: 0, y: 0 };
+    let cameraRotation = { x: 0.6, y: -0.8 }; // Ángulo inicial de la cámara
+    let cameraRadius = 32;                     // Distancia de zoom por defecto
+
+    // Inicializar la escena 3D en cuanto cargue la ventana
+    window.onload = function() {
+        init3D();
+        setupEvents();
+        animateLoop();
+    };
+
+    function init3D() {
+        const container = document.getElementById('canvas-3d');
+        
+        // 1. Crear la Escena y la Cámara con Niebla volumétrica profunda
+        scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x020204, 0.025);
+
+        camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 1000);
+        updateCameraPosition();
+
+        // 2. Crear Renderizador con Antialiasing de alta calidad
+        renderer = new THREE.WebGLRenderer({ canvas: container, antialias: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+
+        // 3. Luces Dinámicas para los reflejos
+        const currentTheme = themes[config.theme];
+        const ambientLight = new THREE.AmbientLight(currentTheme.ambientLight, 1.5);
+        ambientLight.name = "ambient";
+        scene.add(ambientLight);
+
+        const pointLight1 = new THREE.PointLight(currentTheme.pointLight1, 3, 50);
+        pointLight1.position.set(10, 15, 10);
+        pointLight1.name = "light1";
+        scene.add(pointLight1);
+
+        const pointLight2 = new THREE.PointLight(currentTheme.pointLight2, 3, 50);
+        pointLight2.position.set(-10, 5, -10);
+        pointLight2.name = "light2";
+        scene.add(pointLight2);
+
+        // 4. Construir la Rejilla de Columnas 3D Holográficas
+        const baseGeo = new THREE.BoxGeometry(1.0, 1.0, 1.0);
+        baseGeo.translate(0, 0.5, 0); // Desplaza el pivote a la base de la columna para la escala
+        
+        const tipGeo = new THREE.BoxGeometry(1.02, 0.15, 1.02);
+        tipGeo.translate(0, 0.075, 0);
+
+        const halfGrid = (gridSize * spacing) / 2;
+
+        for (let x = 0; x < gridSize; x++) {
+            for (let z = 0; z < gridSize; z++) {
+                const colGroup = new THREE.Group();
+                colGroup.position.set(
+                    x * spacing - halfGrid,
+                    0,
+                    z * spacing - halfGrid
+                );
+
+                // Material de la base metálica
+                const baseMat = new THREE.MeshStandardMaterial({
+                    color: currentTheme.baseColor,
+                    roughness: 0.15,
+                    metalness: 0.9,
+                    flatShading: true
+                });
+
+                // Material del capó cristalino autoluminiscente
+                const tipMat = new THREE.MeshStandardMaterial({
+                    color: currentTheme.tipColor,
+                    emissive: currentTheme.tipColor,
+                    emissiveIntensity: 0.8,
+                    roughness: 0.05,
+                    metalness: 0.1,
+                    transparent: true,
+                    opacity: 0.9
+                });
+
+                const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+                const tipMesh = new THREE.Mesh(tipGeo, tipMat);
+
+                colGroup.add(baseMesh);
+                colGroup.add(tipMesh);
+                
+                scene.add(colGroup);
+
+                columns.push({
+                    group: colGroup,
+                    base: baseMesh,
+                    tip: tipMesh,
+                    gridX: x,
+                    gridZ: z
+                });
+            }
+        }
+
+        // 5. Suelo técnico cuadriculado
+        const gridHelper = new THREE.GridHelper(60, 30, currentTheme.tipColor, 0x22222a);
+        gridHelper.position.y = -0.1;
+        gridHelper.material.opacity = 0.15;
+        gridHelper.material.transparent = true;
+        scene.add(gridHelper);
+    }
+
+    // Configuración de los eventos adaptables e interactivos de cámara
+    function setupEvents() {
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        const canvas = document.getElementById('canvas-3d');
+
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            previousMousePosition = { x: e.clientX, y: e.clientY };
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+
+            const deltaMove = {
+                x: e.clientX - previousMousePosition.x,
+                y: e.clientY - previousMousePosition.y
+            };
+
+            cameraRotation.y += deltaMove.x * 0.005;
+            cameraRotation.x = Math.max(0.1, Math.min(Math.PI / 2 - 0.05, cameraRotation.x - deltaMove.y * 0.005));
+
+            updateCameraPosition();
+            previousMousePosition = { x: e.clientX, y: e.clientY };
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            cameraRadius = Math.max(15, Math.min(65, cameraRadius + e.deltaY * 0.04));
+            updateCameraPosition();
+        });
+    }
+
+    function updateCameraPosition() {
+        camera.position.x = cameraRadius * Math.sin(cameraRotation.y) * Math.cos(cameraRotation.x);
+        camera.position.z = cameraRadius * Math.cos(cameraRotation.y) * Math.cos(cameraRotation.x);
+        camera.position.y = cameraRadius * Math.sin(cameraRotation.x);
+        camera.lookAt(0, 1.5, 0);
+    }
+
+    // Bucle de animación principal
+    function animateLoop() {
+        requestAnimationFrame(animateLoop);
+
+        const time = Date.now() * 0.0015 * config.speed;
+
+        // Auto rotación suave de la cámara
+        if (config.autoRotate && !isDragging) {
+            cameraRotation.y += 0.0015;
+            updateCameraPosition();
+        }
+
+        // Movimiento de las luces puntuales para reflejos dinámicos sobre el metal
+        const l1 = scene.getObjectByName("light1");
+        if (l1) {
+            l1.position.x = 18 * Math.sin(time * 0.5);
+            l1.position.z = 18 * Math.cos(time * 0.5);
+        }
+
+        const l2 = scene.getObjectByName("light2");
+        if (l2) {
+            l2.position.x = -15 * Math.cos(time * 0.3);
+            l2.position.z = -15 * Math.sin(time * 0.3);
+            l2.position.y = 8 + 4 * Math.sin(time);
+        }
+
+        // Algoritmo matemático de oscilación y oleaje procedimental
+        columns.forEach(col => {
+            const d = Math.sqrt(col.gridX * col.gridX + col.gridZ * col.gridZ);
+            const wave = Math.sin(col.gridX * 0.3 + time) * Math.cos(col.gridZ * 0.3 + time) * 0.6
+                       + Math.sin(d * 0.45 - time * 0.8) * 0.4;
+
+            const finalHeight = Math.max(0.5, (wave + 1) * 3.5 * config.amplitude);
+
+            col.base.scale.y = finalHeight;
+            col.tip.position.y = finalHeight;
+        });
+
+        renderer.render(scene, camera);
+    }
+</script>
+
+</body>
+</html>
