@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secuencia de Encapsulamiento de Red - Control Manual (Limpio)</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: 'Urbanist', 'Segoe UI', sans-serif;
+            cursor: pointer;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .controls-footer {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 11px;
+            pointer-events: none;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="canvas-container">
+    <canvas id="dataFlowCanvas"></canvas>
+</div>
+
+<div class="controls-footer">
+    Simulación de Red // Control Manual (Sin Interfaz) // 5-Tupla Interactiva
+</div>
+
+<script>
+    const canvas = document.getElementById('dataFlowCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let width, height;
+    const themeColor = '#00f2ff';
+    const goldColor = '#ffd700';
+    const gridColor = 'rgba(112, 112, 112, 0.15)';
+    
+    const PHASES = {
+        IP_SRC: 1,
+        PORT_SRC: 2,
+        IP_DST_PORT_DST: 3,
+        PROTOCOL: 4,
+        MERGE: 5,
+        TRANSMIT: 6
+    };
+
+    const networkData = {
+        ipSource: "192.168.1.15",
+        ipDest: "8.8.8.8",
+        portSource: "54231",
+        portDest: "443",
+        protocol: "TCP / SSL",
+        scenarioName: "Conexión Segura HTTPS"
+    };
+
+    const backgroundPackets = [];
+    for(let i = 0; i < 40; i++) {
+        backgroundPackets.push({
+            x: Math.random() * 100,
+            yOffset: (Math.random() - 0.5) * 120,
+            speed: 0.1 + Math.random() * 0.2,
+            size: 1 + Math.random() * 2,
+            opacity: 0.1 + Math.random() * 0.4
+        });
+    }
+
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+
+    class DataSequencer {
+        constructor() {
+            this.reset();
+        }
+
+        reset() {
+            this.progress = 0;
+            this.phase = PHASES.IP_SRC;
+            this.stampY = -100;
+            this.packetX = width * 0.5;
+            this.merged = false;
+            this.isWaiting = false;
+        }
+
+        next() {
+            if (!this.isWaiting && this.phase !== PHASES.TRANSMIT) return;
+            
+            if (this.phase === PHASES.TRANSMIT) {
+                this.reset();
+            } else {
+                this.isWaiting = false;
+                this.progress = 0;
+                this.phase++;
+            }
+        }
+
+        update() {
+            if (this.isWaiting) return;
+
+            switch(this.phase) {
+                case PHASES.IP_SRC:
+                    this.progress += 0.005;
+                    if (this.progress >= 1) {
+                        this.progress = 1;
+                        this.isWaiting = true;
+                    }
+                    break;
+                case PHASES.PORT_SRC:
+                    this.progress += 0.007;
+                    if (this.progress >= 1) {
+                        this.progress = 1;
+                        this.isWaiting = true;
+                    }
+                    break;
+                case PHASES.IP_DST_PORT_DST:
+                    this.progress += 0.006;
+                    if (this.progress >= 1) {
+                        this.progress = 1;
+                        this.isWaiting = true;
+                    }
+                    break;
+                case PHASES.PROTOCOL:
+                    this.progress += 0.008;
+                    this.stampY = -100 + (this.progress * 600);
+                    if (this.progress >= 1) {
+                        this.progress = 1;
+                        this.isWaiting = true;
+                    }
+                    break;
+                case PHASES.MERGE:
+                    this.progress += 0.008;
+                    if (this.progress >= 1) {
+                        this.progress = 1;
+                        this.isWaiting = true;
+                        this.merged = true;
+                    }
+                    break;
+                case PHASES.TRANSMIT:
+                    this.packetX += 4;
+                    if (this.packetX > width + 100) {
+                        this.isWaiting = true;
+                    }
+                    break;
+            }
+
+            backgroundPackets.forEach(p => {
+                p.x += p.speed;
+                if (p.x > 100) p.x = 0;
+            });
+        }
+
+        draw() {
+            const centerX = width * 0.5;
+            const centerY = height * 0.5;
+            const startX = width * 0.1;
+            const endX = width * 0.9;
+
+            // 1. Tráfico de fondo
+            ctx.lineWidth = 1;
+            backgroundPackets.forEach(p => {
+                const px = startX + (endX - startX) * (p.x / 100);
+                const py = centerY + Math.sin(p.x * 0.05) * p.yOffset;
+                ctx.fillStyle = themeColor;
+                ctx.globalAlpha = p.opacity;
+                ctx.beginPath(); ctx.arc(px, py, p.size, 0, Math.PI * 2); ctx.fill();
+            });
+            ctx.globalAlpha = 1;
+
+            // 2. Líneas de pulso
+            const pulse = (Math.sin(Date.now() * 0.002) + 1) * 0.5;
+            ctx.strokeStyle = `rgba(0, 242, 255, ${0.05 + pulse * 0.1})`;
+            ctx.lineWidth = 2;
+            for(let i = -2; i <= 2; i++) {
+                ctx.beginPath();
+                ctx.moveTo(startX, centerY);
+                ctx.quadraticCurveTo(centerX, centerY + i * 80, endX, centerY);
+                ctx.stroke();
+            }
+
+            // 3. Nodos
+            drawNode(startX, centerY, "CLIENTE", false);
+            drawNode(endX, centerY, "SERVIDOR", true);
+
+            // 4. Lógica de renderizado por fases
+            if (this.phase >= PHASES.IP_SRC && !this.merged) {
+                let xPos;
+                if (this.phase === PHASES.IP_SRC) {
+                    xPos = startX + (centerX - 60 - startX) * this.progress;
+                } else {
+                    xPos = centerX - 60;
+                }
+                drawCard(xPos, centerY, "IP ORIGEN", networkData.ipSource, 1);
+            }
+
+            if (this.phase >= PHASES.PORT_SRC && !this.merged) {
+                let portScale = (this.phase === PHASES.PORT_SRC) ? this.progress : 1;
+                drawPort(centerX - 60, centerY - 80, "PUERTO ORIGEN", networkData.portSource, portScale);
+            }
+
+            if (this.phase >= PHASES.IP_DST_PORT_DST && !this.merged) {
+                let ipX, portScale;
+                if (this.phase === PHASES.IP_DST_PORT_DST) {
+                    ipX = endX - (endX - (centerX + 60)) * this.progress;
+                    portScale = this.progress;
+                } else {
+                    ipX = centerX + 60;
+                    portScale = 1;
+                }
+                drawCard(ipX, centerY, "IP DESTINO", networkData.ipDest, 1);
+                drawPort(centerX + 60, centerY - 80, "PUERTO DESTINO", networkData.portDest, portScale, true);
+            }
+
+            if (this.phase >= PHASES.PROTOCOL && !this.merged) {
+                if (this.phase === PHASES.PROTOCOL) drawStamp(centerX, this.stampY, networkData.protocol);
+            }
+
+            if (this.phase === PHASES.MERGE || (this.phase === PHASES.TRANSMIT && this.merged)) {
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                let s = 1;
+                if (this.phase === PHASES.MERGE) s = 1 + Math.sin(this.progress * Math.PI) * 0.2;
+                ctx.scale(s, s);
+                drawGoldenTag(0, 0, networkData.scenarioName);
+                ctx.restore();
+            }
+
+            if (this.phase === PHASES.TRANSMIT) {
+                drawFinalPacket(this.packetX, centerY);
+            }
+        }
+    }
+
+    function drawNode(x, y, label, isServer) {
+        const glow = (Math.sin(Date.now() * 0.003) + 1) * 0.5;
+        ctx.strokeStyle = themeColor;
+        ctx.shadowBlur = 5 + glow * 10;
+        ctx.shadowColor = themeColor;
+        ctx.lineWidth = 2;
+        if (isServer) {
+            for(let i=0; i<3; i++) ctx.strokeRect(x-20, y-40+(i*30), 40, 20);
+        } else {
+            ctx.strokeRect(x-30, y-25, 60, 40);
+            ctx.strokeRect(x-35, y+15, 70, 5);
+        }
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, x, y + 60);
+    }
+
+    function drawCard(x, y, title, val, alpha) {
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = themeColor;
+        ctx.fillStyle = 'rgba(10, 10, 10, 0.9)';
+        ctx.fillRect(x - 55, y - 35, 110, 70);
+        ctx.strokeRect(x - 55, y - 35, 110, 70);
+        ctx.fillStyle = themeColor;
+        ctx.fillRect(x-45, y-25, 15, 15);
+        ctx.fillStyle = 'white';
+        ctx.font = '9px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(title, x, y - 10);
+        ctx.fillStyle = themeColor;
+        ctx.font = 'bold 10px Courier New';
+        ctx.fillText(val, x, y + 15);
+        ctx.globalAlpha = 1;
+    }
+
+    function drawPort(x, y, title, val, scale, isDoor) {
+        ctx.save(); ctx.translate(x, y); ctx.scale(scale, scale);
+        ctx.strokeStyle = themeColor;
+        ctx.strokeRect(-45, -25, 90, 50);
+        ctx.fillStyle = '#fff';
+        ctx.font = '8px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(title, 0, -8);
+        ctx.fillStyle = themeColor;
+        ctx.font = 'bold 12px Arial';
+        ctx.fillText(val, 0, 15);
+        ctx.restore();
+    }
+
+    function drawStamp(x, y, text) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x - 70, y - 35, 140, 70);
+        ctx.fillStyle = 'rgba(255,255,255,0.1)';
+        ctx.fillRect(x - 70, y - 35, 140, 70);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 18px Impact';
+        ctx.textAlign = 'center';
+        ctx.fillText(text, x, y + 12);
+        ctx.strokeRect(x - 20, y - 70, 40, 35);
+    }
+
+    function drawGoldenTag(x, y, name) {
+        ctx.shadowBlur = 25; ctx.shadowColor = goldColor;
+        ctx.strokeStyle = goldColor;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(-80, -45, 160, 90);
+        ctx.fillStyle = 'rgba(255, 215, 0, 0.05)';
+        ctx.fillRect(-80, -45, 160, 90);
+        ctx.fillStyle = goldColor;
+        ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center';
+        ctx.fillText("ETIQUETA DE IDENTIDAD", 0, -12);
+        ctx.font = '10px Arial';
+        ctx.fillText(name.toUpperCase(), 0, 18);
+        ctx.shadowBlur = 0;
+    }
+
+    function drawFinalPacket(x, y) {
+        ctx.shadowBlur = 20; ctx.shadowColor = goldColor;
+        ctx.fillStyle = goldColor;
+        ctx.fillRect(x - 25, y - 25, 50, 50);
+        ctx.fillStyle = '#000';
+        ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center';
+        ctx.fillText("DATA", x, y + 5);
+        ctx.shadowBlur = 0;
+    }
+
+    function drawGrid() {
+        ctx.strokeStyle = gridColor;
+        ctx.lineWidth = 1;
+        const offset = (Date.now() * 0.01) % 40;
+        for (let x = offset; x <= width; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
+        for (let y = offset; y <= height; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
+    }
+
+    const sequencer = new DataSequencer();
+
+    function animate() {
+        ctx.fillStyle = '#050505';
+        ctx.fillRect(0, 0, width, height);
+        drawGrid();
+        sequencer.update();
+        sequencer.draw();
+        requestAnimationFrame(animate);
+    }
+
+    window.addEventListener('mousedown', () => sequencer.next());
+    window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') sequencer.next();
+    });
+
+    window.onload = animate;
+</script>
+
+</body>
+</html>
